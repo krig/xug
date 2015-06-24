@@ -123,6 +123,7 @@ G_DEFINE_TYPE_WITH_PRIVATE(XugAppWindow, xug_app_window, GTK_TYPE_APPLICATION_WI
 static int cb_current_id(xmmsv_t* value, void* userdata);
 static int cb_status(xmmsv_t* value, void* userdata);
 static int cb_playtime(xmmsv_t* value, void* userdata);
+static int cb_coll_query_infos(xmmsv_t* value, void* userdata);
 
 static int cb_pl_changed(xmmsv_t* value, void* userdata);
 static int cb_pl_current_pos(xmmsv_t* value, void* userdata);
@@ -391,6 +392,9 @@ static void cb_current_data_func(GtkTreeViewColumn *col, GtkCellRenderer *render
 	}
 }
 
+static xmmsv_t* g_query_fields;
+static xmmsv_t* g_query_groupby;
+
 
 static void xug_app_window_init(XugAppWindow* win)
 {
@@ -442,20 +446,27 @@ static void xug_app_window_init(XugAppWindow* win)
 		g_playlist_store = store;
 	}
 
-	/*
 	{
 		auto scrolled = gtk_scrolled_window_new(NULL, NULL);
 		gtk_widget_set_hexpand(scrolled, TRUE);
 		gtk_widget_set_vexpand(scrolled, TRUE);
 		gtk_scrolled_window_set_kinetic_scrolling(GTK_SCROLLED_WINDOW(scrolled), TRUE);
 
-		
+		auto grid = gtk_grid_new ();
+
+		auto child1 = gtk_label_new ("One");
+		gtk_widget_set_hexpand (child1, TRUE);
+		gtk_widget_set_halign (child1, GTK_ALIGN_CENTER);
+		gtk_grid_attach (GTK_GRID (grid), child1, 0, 0, 1, 1);
+		auto child2 = gtk_label_new ("Two");
+		gtk_widget_set_hexpand (child2, TRUE);
+		gtk_widget_set_halign (child1, GTK_ALIGN_FILL);
+		gtk_grid_attach_next_to (GTK_GRID (grid), child2, child1, GTK_POS_RIGHT, 1, 1);
 
 		gtk_container_add(GTK_CONTAINER (scrolled), grid);
 		gtk_stack_add_titled(GTK_STACK(priv->stack), scrolled, "albums", "Albums");
 		gtk_widget_show_all(scrolled);
 	}
-	*/
 
 
 	gtk_stack_set_visible_child_name(GTK_STACK(priv->stack), "playlist");
@@ -463,6 +474,23 @@ static void xug_app_window_init(XugAppWindow* win)
 	// populate the playlist
 	XmmsResult(xmmsc_playlist_list_entries(g_xmms_async, nullptr)).notifier_set(cb_pl_list_entries, win);
 
+	// populate the album map
+
+	if (!g_query_fields) {
+		g_query_fields = xmmsv_new_list();
+		xmmsv_list_append_string(g_query_fields, "artist");
+		xmmsv_list_append_string(g_query_fields, "compilation");
+		xmmsv_list_append_string(g_query_fields, "album");
+		xmmsv_list_append_string(g_query_fields, "picture_front");
+		xmmsv_list_append_string(g_query_fields, "picture_front_mime");
+		xmmsv_list_append_string(g_query_fields, "lmod");
+
+		g_query_groupby = xmmsv_new_list();
+		xmmsv_list_append_string(g_query_groupby, "albums");
+	}
+	auto universe = xmmsv_coll_universe();
+	XmmsResult(xmmsc_coll_query_infos(g_xmms_async, universe, NULL, 0, 0, g_query_fields, g_query_groupby)).notifier_set(cb_coll_query_infos, win);
+	xmmsv_coll_unref(universe);
 }
 
 static void xug_app_window_dispose(GObject* object)
@@ -699,6 +727,36 @@ static int cb_pl_list_entries(xmmsv_t* value, void* userdata)
 	return TRUE;
 }
 
+
+static int cb_coll_query_infos(xmmsv_t* value, void* userdata)
+{
+	if (!check_value(value))
+		return TRUE;
+
+	int sz = xmmsv_list_get_size(value);
+	g_print("query infos: %d\n", sz);
+
+
+	xmmsv_list_iter_t *iter;
+	xmmsv_get_list_iter(value, &iter);
+	xmmsv_t *entry;
+	while (xmmsv_list_iter_entry(iter, &entry)) {
+		if (!check_value(entry))
+			continue;
+
+		if (xmmsv_dict_has_key(entry, "artist")) {
+			const char* artist;
+			xmmsv_dict_entry_get_string(entry, "artist", &artist);
+			g_print("artist: %s\n", artist);
+		}
+
+		xmmsv_list_iter_next(iter);
+	}
+
+	return TRUE;
+}
+
+
 static void cb_playlist_row_activated(GtkTreeView *tree_view, GtkTreePath *path, GtkTreeViewColumn *column, gpointer user_data)
 {
 	GtkTreeIter pos;
@@ -764,9 +822,15 @@ static void play_clicked(GtkButton* button, XugAppWindow* win)
 
 static void choose_view_clicked(GtkButton* button, XugAppWindow* win)
 {
-	// TODO: switch active view...
 	auto priv = privates(win);
-	gtk_widget_set_sensitive(priv->search, !gtk_widget_get_sensitive(priv->search));
+	const gchar* child = gtk_stack_get_visible_child_name(GTK_STACK(priv->stack));
+	if (child == NULL || strcmp(child, "playlist") != 0) {
+		gtk_stack_set_visible_child_name(GTK_STACK(priv->stack), "playlist");
+		gtk_widget_set_sensitive(priv->search, FALSE);
+	} else {
+		gtk_stack_set_visible_child_name(GTK_STACK(priv->stack), "albums");
+		gtk_widget_set_sensitive(priv->search, TRUE);
+	}
 }
 
 
