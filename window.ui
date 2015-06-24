@@ -3,8 +3,8 @@
   <!-- interface-requires gtk+ 3.8 -->
   <template class="XugAppWindow" parent="GtkApplicationWindow">
     <property name="title" translatable="no">xug</property>
-    <property name="default-width">640</property>
-    <property name="default-height">400</property>
+    <property name="default-width">800</property>
+    <property name="default-height">600</property>
     <child type="titlebar">
       <object class="GtkHeaderBar" id="header">
         <property name="visible">True</property>
@@ -40,7 +40,7 @@
             <child>
               <object class="GtkImage" id="play_icon">
                 <property name="visible">True</property>
-                <property name="icon-name">media-playback-start</property>
+                <property name="icon-name">media-playback-start-symbolic</property>
                 <property name="icon-size">1</property>
               </object>
             </child>            
