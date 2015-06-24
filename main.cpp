@@ -379,9 +379,15 @@ static void cb_current_data_func(GtkTreeViewColumn *col, GtkCellRenderer *render
 	int idx;
 	gtk_tree_model_get(model, iter, PL_INDEX, &idx, -1);
 	if (idx == g_playback_status.position) {
-		g_object_set(renderer, "weight", 800, NULL);
+		if (user_data != NULL) {
+			GdkRGBA rgba;
+			gdk_rgba_parse(&rgba, "#16a085");
+			g_object_set(renderer, "weight", 800, "cell-background-rgba", &rgba, "cell-background-set", TRUE, NULL);
+		} else {
+			g_object_set(renderer, "weight", 800, "cell-background-set", FALSE, NULL);
+		}
 	} else {
-		g_object_set(renderer, "weight", 400, NULL);
+		g_object_set(renderer, "weight", 400, "cell-background-set", FALSE,NULL);
 	}
 }
 
@@ -404,37 +410,54 @@ static void xug_app_window_init(XugAppWindow* win)
 	XmmsResult(xmmsc_broadcast_playlist_current_pos(g_xmms_async)).notifier_set(cb_pl_current_pos, win);
 	XmmsResult(xmmsc_broadcast_playlist_loaded(g_xmms_async)).notifier_set(cb_pl_loaded, win);
 
-	auto scrolled = gtk_scrolled_window_new(NULL, NULL);
-	gtk_widget_set_hexpand(scrolled, TRUE);
-	gtk_widget_set_vexpand(scrolled, TRUE);
-	gtk_scrolled_window_set_kinetic_scrolling(GTK_SCROLLED_WINDOW(scrolled), TRUE);
+	{
+		auto scrolled = gtk_scrolled_window_new(NULL, NULL);
+		gtk_widget_set_hexpand(scrolled, TRUE);
+		gtk_widget_set_vexpand(scrolled, TRUE);
+		gtk_scrolled_window_set_kinetic_scrolling(GTK_SCROLLED_WINDOW(scrolled), TRUE);
 
-	auto store = gtk_list_store_new(PL_N_COLUMNS, G_TYPE_INT, G_TYPE_STRING, G_TYPE_STRING, G_TYPE_STRING);
-	auto plist = gtk_tree_view_new_with_model(GTK_TREE_MODEL(store));
-	gtk_tree_view_set_headers_visible(GTK_TREE_VIEW(plist), FALSE);
-	auto index_cell = gtk_cell_renderer_text_new();
-	auto track_cell = gtk_cell_renderer_text_new();
-	auto plindex = gtk_tree_view_column_new_with_attributes("Index", index_cell, "text", PL_INDEX, NULL);
-	auto artist = gtk_tree_view_column_new_with_attributes("Artist", gtk_cell_renderer_text_new(), "text", PL_ARTIST, NULL);
-	auto album = gtk_tree_view_column_new_with_attributes("Album", gtk_cell_renderer_text_new(), "text", PL_ALBUM, NULL);
-	auto track = gtk_tree_view_column_new_with_attributes("Track", track_cell, "text", PL_TRACK, NULL);
-	gtk_tree_view_append_column(GTK_TREE_VIEW(plist), plindex);
-	gtk_tree_view_append_column(GTK_TREE_VIEW(plist), artist);
-	gtk_tree_view_append_column(GTK_TREE_VIEW(plist), album);
-	gtk_tree_view_append_column(GTK_TREE_VIEW(plist), track);
+		auto store = gtk_list_store_new(PL_N_COLUMNS, G_TYPE_INT, G_TYPE_STRING, G_TYPE_STRING, G_TYPE_STRING);
+		auto plist = gtk_tree_view_new_with_model(GTK_TREE_MODEL(store));
+		gtk_tree_view_set_headers_visible(GTK_TREE_VIEW(plist), FALSE);
+		auto index_cell = gtk_cell_renderer_text_new();
+		auto track_cell = gtk_cell_renderer_text_new();
+		auto plindex = gtk_tree_view_column_new_with_attributes("Index", index_cell, "text", PL_INDEX, NULL);
+		auto artist = gtk_tree_view_column_new_with_attributes("Artist", gtk_cell_renderer_text_new(), "text", PL_ARTIST, NULL);
+		auto album = gtk_tree_view_column_new_with_attributes("Album", gtk_cell_renderer_text_new(), "text", PL_ALBUM, NULL);
+		auto track = gtk_tree_view_column_new_with_attributes("Track", track_cell, "text", PL_TRACK, NULL);
+		gtk_tree_view_append_column(GTK_TREE_VIEW(plist), plindex);
+		gtk_tree_view_append_column(GTK_TREE_VIEW(plist), artist);
+		gtk_tree_view_append_column(GTK_TREE_VIEW(plist), album);
+		gtk_tree_view_append_column(GTK_TREE_VIEW(plist), track);
 
-	gtk_tree_view_column_set_cell_data_func(plindex, index_cell, cb_current_data_func, NULL, NULL);
-	gtk_tree_view_column_set_cell_data_func(track, track_cell, cb_current_data_func, NULL, NULL);
+		gtk_tree_view_column_set_cell_data_func(plindex, index_cell, cb_current_data_func, (gpointer)"index", NULL);
+		gtk_tree_view_column_set_cell_data_func(track, track_cell, cb_current_data_func, NULL, NULL);
 
-	gtk_container_add(GTK_CONTAINER (scrolled), plist);
-	gtk_stack_add_titled(GTK_STACK(priv->stack), scrolled, "playlist", "Playlist");
+		gtk_container_add(GTK_CONTAINER (scrolled), plist);
+		gtk_stack_add_titled(GTK_STACK(priv->stack), scrolled, "playlist", "Playlist");
 
-	g_signal_connect(plist, "row-activated", G_CALLBACK(cb_playlist_row_activated), NULL);
+		g_signal_connect(plist, "row-activated", G_CALLBACK(cb_playlist_row_activated), NULL);
+		gtk_widget_show_all(scrolled);
+		g_playlist_view = GTK_TREE_VIEW(plist);
+		g_playlist_store = store;
+	}
 
-	g_playlist_view = GTK_TREE_VIEW(plist);
-	g_playlist_store = store;
+	/*
+	{
+		auto scrolled = gtk_scrolled_window_new(NULL, NULL);
+		gtk_widget_set_hexpand(scrolled, TRUE);
+		gtk_widget_set_vexpand(scrolled, TRUE);
+		gtk_scrolled_window_set_kinetic_scrolling(GTK_SCROLLED_WINDOW(scrolled), TRUE);
 
-	gtk_widget_show_all(scrolled);
+		
+
+		gtk_container_add(GTK_CONTAINER (scrolled), grid);
+		gtk_stack_add_titled(GTK_STACK(priv->stack), scrolled, "albums", "Albums");
+		gtk_widget_show_all(scrolled);
+	}
+	*/
+
+
 	gtk_stack_set_visible_child_name(GTK_STACK(priv->stack), "playlist");
 
 	// populate the playlist
