@@ -2,3 +2,4 @@ xug
 *.o
 *~
 #*.*#
+resources.cpp

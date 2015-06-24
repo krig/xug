@@ -1,2 +1,7 @@
 #!/bin/sh
-gcc -o xug -g -O0 main.cpp
+glib-compile-resources xug.gresource.xml --target=resources.cpp --sourcedir=. --generate-source
+g++ -o xug -g -O0 -std=c++11 \
+    $(pkg-config --cflags --libs gtk+-3.0) \
+    $(pkg-config --cflags --libs xmms2-client) \
+    $(pkg-config --cflags --libs xmms2-client-glib) \
+    main.cpp resources.cpp
