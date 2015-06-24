@@ -394,6 +394,7 @@ static void cb_current_data_func(GtkTreeViewColumn *col, GtkCellRenderer *render
 
 static xmmsv_t* g_query_fields;
 static xmmsv_t* g_query_groupby;
+static xmmsv_t* g_query_order;
 
 
 static void xug_app_window_init(XugAppWindow* win)
@@ -486,10 +487,17 @@ static void xug_app_window_init(XugAppWindow* win)
 		xmmsv_list_append_string(g_query_fields, "lmod");
 
 		g_query_groupby = xmmsv_new_list();
-		xmmsv_list_append_string(g_query_groupby, "albums");
+		xmmsv_list_append_string(g_query_groupby, "album");
+
+		g_query_order = xmmsv_new_list();
+		xmmsv_list_append_string(g_query_order, "artist");
+		xmmsv_list_append_string(g_query_order, "compilation");
 	}
-	auto universe = xmmsv_coll_universe();
-	XmmsResult(xmmsc_coll_query_infos(g_xmms_async, universe, NULL, 0, 0, g_query_fields, g_query_groupby)).notifier_set(cb_coll_query_infos, win);
+
+	auto universe = xmmsv_coll_new(XMMS_COLLECTION_TYPE_REFERENCE);
+	xmmsv_coll_attribute_set(universe, "namespace", "Collections");
+	xmmsv_coll_attribute_set(universe, "reference", "All Media");
+	XmmsResult(xmmsc_coll_query_infos(g_xmms_async, universe, g_query_order, 0, 0, g_query_fields, g_query_groupby)).notifier_set(cb_coll_query_infos, win);
 	xmmsv_coll_unref(universe);
 }
 
@@ -744,11 +752,15 @@ static int cb_coll_query_infos(xmmsv_t* value, void* userdata)
 		if (!check_value(entry))
 			continue;
 
+		const char* artist = "";
+		const char* album = "";
 		if (xmmsv_dict_has_key(entry, "artist")) {
-			const char* artist;
 			xmmsv_dict_entry_get_string(entry, "artist", &artist);
-			g_print("artist: %s\n", artist);
+		} else if (xmmsv_dict_has_key(entry, "compilation")) {
+			xmmsv_dict_entry_get_string(entry, "compilation", &artist);
 		}
+		xmmsv_dict_entry_get_string(entry, "album", &album);
+		g_print("%s - %s\n", artist, album);
 
 		xmmsv_list_iter_next(iter);
 	}
