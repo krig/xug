@@ -3,6 +3,7 @@
 #include <stdint.h>
 #include <string.h>
 #include <glib.h>
+#include <gdk/gdk.h>
 #include <gtk/gtk.h>
 #include <xmmsclient/xmmsclient.h>
 #include <xmmsclient/xmmsclient-glib.h>
@@ -129,12 +130,17 @@ static int cb_pl_loaded(xmmsv_t* value, void* userdata);
 
 static int cb_pl_list_entries(xmmsv_t* value, void* userdata);
 
+static void cb_playlist_row_activated(GtkTreeView *tree_view, GtkTreePath *path, GtkTreeViewColumn *column, gpointer user_data);
+
+
 static void quit_activated(GSimpleAction* action, GVariant* parameter, gpointer app);
 static void search_text_changed(GtkEntry* entry, XugAppWindow* win);
 static void visible_child_changed(GObject* stack, GParamSpec* pspec);
 
 static void play_clicked(GtkButton* button, XugAppWindow* win);
 static void choose_view_clicked(GtkButton* button, XugAppWindow* win);
+static void highlight_playlist_item(GtkTreeIter* it);
+
 
 
 static xmmsc_connection_t* g_xmms_sync;
@@ -263,7 +269,10 @@ static void update_ui(XugAppWindowPrivate* priv)
 	} else {
 		gtk_label_set_text(GTK_LABEL(priv->track), "Not playing");
 	}
-	gtk_level_bar_set_value(GTK_LEVEL_BAR(priv->progress), g_playback_status.playtime);
+	if (g_playback_status.duration > 0) {
+		double progress = (double)g_playback_status.playtime / (double)g_playback_status.duration;
+		gtk_level_bar_set_value(GTK_LEVEL_BAR(priv->progress), progress);
+	}
 
 	if (g_playback_status.status == XMMS_PLAYBACK_STATUS_PLAY) {
 		gtk_button_set_image(GTK_BUTTON(priv->play), gtk_image_new_from_icon_name("media-playback-pause-symbolic", GTK_ICON_SIZE_BUTTON));
@@ -272,9 +281,6 @@ static void update_ui(XugAppWindowPrivate* priv)
 	}
 
 	gtk_widget_set_sensitive(priv->play, TRUE);
-
-	gtk_widget_set_sensitive(priv->progress, g_playback_status.status != XMMS_PLAYBACK_STATUS_STOP);
-
 }
 
 
@@ -326,6 +332,14 @@ static void update_medialib_info(XugAppWindowPrivate* priv, bool complete=false)
 	}
 	if (xmmsv_dict_entry_get_int(info, "position", &val)) {
 		g_playback_status.position = val;
+	} else {
+		if (complete) {
+			XmmsResult r2(xmmsc_playlist_current_pos(g_xmms_sync, NULL));
+			r2.wait();
+			if (check_value(r2.value())) {
+				xmmsv_dict_entry_get_int(r2.value(), "position", &g_playback_status.position);
+			}
+		}
 	}
 
 	if (xmmsv_dict_entry_get_int(info, "duration", &val)) {
@@ -360,6 +374,17 @@ static void init_xmms_status(XugAppWindowPrivate* priv)
 
 enum PL_COLUMNS { PL_INDEX, PL_ARTIST, PL_ALBUM, PL_TRACK, PL_N_COLUMNS };
 
+static void cb_current_data_func(GtkTreeViewColumn *col, GtkCellRenderer *renderer, GtkTreeModel *model, GtkTreeIter *iter, gpointer user_data)
+{
+	int idx;
+	gtk_tree_model_get(model, iter, PL_INDEX, &idx, -1);
+	if (idx == g_playback_status.position) {
+		g_object_set(renderer, "weight", 800, NULL);
+	} else {
+		g_object_set(renderer, "weight", 400, NULL);
+	}
+}
+
 
 static void xug_app_window_init(XugAppWindow* win)
 {
@@ -382,29 +407,32 @@ static void xug_app_window_init(XugAppWindow* win)
 	auto scrolled = gtk_scrolled_window_new(NULL, NULL);
 	gtk_widget_set_hexpand(scrolled, TRUE);
 	gtk_widget_set_vexpand(scrolled, TRUE);
+	gtk_scrolled_window_set_kinetic_scrolling(GTK_SCROLLED_WINDOW(scrolled), TRUE);
 
 	auto store = gtk_list_store_new(PL_N_COLUMNS, G_TYPE_INT, G_TYPE_STRING, G_TYPE_STRING, G_TYPE_STRING);
 	auto plist = gtk_tree_view_new_with_model(GTK_TREE_MODEL(store));
 	gtk_tree_view_set_headers_visible(GTK_TREE_VIEW(plist), FALSE);
-	auto plindex = gtk_tree_view_column_new_with_attributes("Index", gtk_cell_renderer_text_new(), "text", PL_INDEX, NULL);
+	auto index_cell = gtk_cell_renderer_text_new();
+	auto track_cell = gtk_cell_renderer_text_new();
+	auto plindex = gtk_tree_view_column_new_with_attributes("Index", index_cell, "text", PL_INDEX, NULL);
 	auto artist = gtk_tree_view_column_new_with_attributes("Artist", gtk_cell_renderer_text_new(), "text", PL_ARTIST, NULL);
 	auto album = gtk_tree_view_column_new_with_attributes("Album", gtk_cell_renderer_text_new(), "text", PL_ALBUM, NULL);
-	auto track = gtk_tree_view_column_new_with_attributes("Track", gtk_cell_renderer_text_new(), "text", PL_TRACK, NULL);
+	auto track = gtk_tree_view_column_new_with_attributes("Track", track_cell, "text", PL_TRACK, NULL);
 	gtk_tree_view_append_column(GTK_TREE_VIEW(plist), plindex);
 	gtk_tree_view_append_column(GTK_TREE_VIEW(plist), artist);
 	gtk_tree_view_append_column(GTK_TREE_VIEW(plist), album);
 	gtk_tree_view_append_column(GTK_TREE_VIEW(plist), track);
+
+	gtk_tree_view_column_set_cell_data_func(plindex, index_cell, cb_current_data_func, NULL, NULL);
+	gtk_tree_view_column_set_cell_data_func(track, track_cell, cb_current_data_func, NULL, NULL);
+
 	gtk_container_add(GTK_CONTAINER (scrolled), plist);
 	gtk_stack_add_titled(GTK_STACK(priv->stack), scrolled, "playlist", "Playlist");
 
+	g_signal_connect(plist, "row-activated", G_CALLBACK(cb_playlist_row_activated), NULL);
+
 	g_playlist_view = GTK_TREE_VIEW(plist);
 	g_playlist_store = store;
-
-	/*
-	GtkTreeIter pos;
-	gtk_list_store_insert_with_values(store, &pos, -1, 0, 1, 1, "foo", 2, "bar", 3, "stuff", -1);
-	gtk_list_store_insert_with_values(store, &pos, -1, 0, 30, 1, "wiz", 2, "bang", 3, "stuff", -1);
-	*/
 
 	gtk_widget_show_all(scrolled);
 	gtk_stack_set_visible_child_name(GTK_STACK(priv->stack), "playlist");
@@ -416,9 +444,6 @@ static void xug_app_window_init(XugAppWindow* win)
 
 static void xug_app_window_dispose(GObject* object)
 {
-	//auto win = XUG_APP_WINDOW(object);
-	//auto priv = privates(win);
-	//g_clear_object(&priv->settings);
 	G_OBJECT_CLASS(xug_app_window_parent_class)->dispose(object);
 }
 
@@ -532,7 +557,7 @@ static int cb_pl_changed(xmmsv_t* value, void* userdata)
 
 static int cb_pl_current_pos(xmmsv_t* value, void* userdata)
 {
-
+	int prevpos = g_playback_status.position;
 	int currpos = -1;
 	if (!xmmsv_is_error(value)) {
 		xmmsv_dict_entry_get_int(value, "position", &currpos);
@@ -547,18 +572,17 @@ static int cb_pl_current_pos(xmmsv_t* value, void* userdata)
 		while (true) {
 			int idx;
 			gtk_tree_model_get(GTK_TREE_MODEL(g_playlist_store), &it, PL_INDEX, &idx, -1);
+
 			if (idx == currpos) {
-				auto path = gtk_tree_model_get_path(GTK_TREE_MODEL(g_playlist_store), &it);
-				gtk_tree_view_set_cursor (g_playlist_view, path, NULL, FALSE);
-				auto sel = gtk_tree_view_get_selection(g_playlist_view);
-				gtk_tree_selection_select_iter(sel, &it);
-				gtk_tree_path_free(path);
-				break;
+				highlight_playlist_item(&it);
 			}
 			if (!gtk_tree_model_iter_next(GTK_TREE_MODEL(g_playlist_store), &it))
 				break;
 		}
 	}
+
+	auto window = gtk_tree_view_get_bin_window(GTK_TREE_VIEW(g_playlist_view));
+	gdk_window_invalidate_rect(window, NULL, TRUE);
 
 	return TRUE;
 }
@@ -574,6 +598,14 @@ struct PlaylistUpdateData
 {
 	int refcount;
 };
+
+static void highlight_playlist_item(GtkTreeIter* it) {
+	auto path = gtk_tree_model_get_path(GTK_TREE_MODEL(g_playlist_store), it);
+	gtk_tree_view_set_cursor (g_playlist_view, path, NULL, FALSE);
+	auto sel = gtk_tree_view_get_selection(g_playlist_view);
+	gtk_tree_selection_select_iter(sel, it);
+	gtk_tree_path_free(path);
+}
 
 
 static int cb_pl_entry_info(xmmsv_t* value, void* userdata)
@@ -606,8 +638,7 @@ static int cb_pl_entry_info(xmmsv_t* value, void* userdata)
 
 	if (xmmsv_dict_entry_get_int(info, "id", &ival)) {
 		if (ival == g_playback_status.id) {
-			auto sel = gtk_tree_view_get_selection(g_playlist_view);
-			gtk_tree_selection_select_iter(sel, &pos);
+			highlight_playlist_item(&pos);
 		}
 	}
 
@@ -616,7 +647,6 @@ end:
 
 	return TRUE;
 }
-
 
 static int cb_pl_list_entries(xmmsv_t* value, void* userdata)
 {
@@ -644,6 +674,24 @@ static int cb_pl_list_entries(xmmsv_t* value, void* userdata)
 	}
 
 	return TRUE;
+}
+
+static void cb_playlist_row_activated(GtkTreeView *tree_view, GtkTreePath *path, GtkTreeViewColumn *column, gpointer user_data)
+{
+	GtkTreeIter pos;
+	if (!gtk_tree_model_get_iter(GTK_TREE_MODEL(g_playlist_store), &pos, path))
+		return;
+
+	int index;
+	gtk_tree_model_get(GTK_TREE_MODEL(g_playlist_store), &pos, 0, &index, -1);
+
+	g_print("row activated: %d\n", index);
+
+	XmmsResult(xmmsc_playlist_set_next(g_xmms_sync, index)).wait();
+	if (g_playback_status.status != XMMS_PLAYBACK_STATUS_PLAY)
+		XmmsResult(xmmsc_playback_start(g_xmms_sync)).wait();
+	XmmsResult(xmmsc_playback_tickle(g_xmms_sync)).wait();
+
 }
 
 

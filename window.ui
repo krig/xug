@@ -52,6 +52,7 @@
         <child type="title">
           <object class="GtkLabel" id="track">
             <property name="visible">True</property>
+            <property name="ellipsize">end</property>
             <property name="margin">6</property>
             <property name="label" translatable="no">Artist - Track</property>
           </object>
